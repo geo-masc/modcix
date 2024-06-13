@@ -24,3 +24,11 @@ agreements the reference data used will not be openly shared but can be requeste
 <p align="center">
   <img src="https://github.com/geo-masc/modcix/blob/main/figures/modcix_data_regions.png">
 </p>
+
+The project and first preliminary results were presented during EARSeL Symposium 2023 in Bucharest, Rumania: 
+
+Schwieder, Marcel; Lobert, Felix; Muhuri, Arnab; Oppelt, Natascha; Asam, Sarah; Reinermann, Sophie; Morel, Julien; Rossi, Mattia; Weber, Dominique; Sarvia, Filippo; De Petris, Samuele; Borgogno-Mondino, Enrico; Buck, Oliver; Ernst, Stefan; Hostert, Patrick; Valero, Silvia; Garioud, Anatol; Holtgrave, 
+Ann-Kathrin; Mallet, Clement; De Vroey, Mathilde; Schaumberger, Andreas; Tsardanidis, Iason; Sonnenschein, Ruth; Vuolo, Francesco; Dujakovic, Aleksander; Filippa, Gianluca; Erasmi, Stefan(2023) Mowing detection intercomparison exercise - MODCiX. 
+EARSeL Symposium, 2023-07-03 - 2023-07-06, Bucharest, Rumania.
+
+A publication is currently in preparation.
