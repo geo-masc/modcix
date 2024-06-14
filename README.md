@@ -1,4 +1,4 @@
-# MODCiX - Mowing Detection Intercomparison Exersice
+# MODCiX - Mowing Detection Intercomparison Exercise
 
 Grasslands are a major component of Europe's agricultural landscapes and provide important ecological functions and services within a multifunctional agriculture. Grasslands supply fodder, straw or raw biomass for energy production and provide habitat
 for endangered flora and fauna. At the same time, there is a wide spectrum of grasslands management practices and intensity, which impact their resilience. Their conservation and sustainable management hence directly contribute to strategies and
