@@ -1,6 +1,10 @@
 ---
 title: "MODCiX Accuracy Assessment"
-output: github_document
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+date: "`r format(Sys.time(), '%d %B %Y')`"
 knit: (function(inputFile, encoding) {
   rmarkdown::render(inputFile, encoding = encoding, output_dir = "../docs", output_file = file.path(dirname(inputFile), 'index.html')) })
 ---
