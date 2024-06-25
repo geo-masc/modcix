@@ -2,12 +2,17 @@
 title: "MODCiX - Mowing Detection Intercomparison Exercise"
 output: 
   html_document:
-    toc: true
-    toc_float: true
+    theme: flatly
+    toc: yes
+    toc_float:
+      collapsed: true
+    toc_depth: 3
+    number_sections: true
 author:
   - Marcel Schwieder^[marcel.schwieder@thuenen.de] & Felix Lobert^[felix.lobert@thuenen.de]
   - Thünen Earth Observation
 date: "`r format(Sys.time(), '%B %d, %Y')`"
+fontsize: 16pt
 knit: (function(inputFile, encoding) {
   rmarkdown::render(inputFile, encoding = encoding, output_dir = "../docs", output_file = file.path(dirname(inputFile), 'index.html')) })
 ---
@@ -17,13 +22,13 @@ knitr::opts_chunk$set(warning = FALSE, message = FALSE)
 library(DT)
 ```
 
-## Accuracy Assessment of Mowing Events
+# Accuracy Assessment of Mowing Events
 
 This notebook evaluates the accuracy of predicted mowing events against reference data. The steps include data loading, preprocessing, filtering, and computing accuracy metrics.
 
 For data privacy reasons, we are not allowed to share the exact reference data. We therefore provide dummy datasets that simulate reference events for two regions and corresponding predictions from two teams.
 
-### 1. Load Libraries and Define Constants
+## Load Libraries and Define Constants
 
 We start by loading the necessary libraries and defining constants.
 
@@ -41,9 +46,9 @@ REFERENCE_DATA_PATH <- "../data/reference_data_dummy.csv"  # Path to reference d
 RESULTS_PATH <- "../data/results_data_dummy.csv"  # Path to results data
 ```
 
-### 2. Load and Prepare Data
+## Load and Prepare Data
 
-#### 2.1 Reference Data
+### Reference Data
 We load the reference data check that all mowing events are within our defined valid mowing period between March 15 and October 27 (```VALID_MOWING_RANGE```). The dates of the reference mowing events are in the day of the year (DOY) format.
 
 ```{r load-reference-data}
@@ -74,7 +79,7 @@ reference_data_cleaned <- reference_data %>%
 ```{r, echo=FALSE}
 datatable(reference_data_cleaned, options = list(paging =TRUE, pageLength = 5))
 ```
-#### 2.2 Results of the Groups
+### Results of the Groups
 
 We load the harmonized predictions and discard predictions outside the valid mowing period (```VALID_MOWING_RANGE```). Regions and year combinations that are not present in the reference data are also filtered out.
 
@@ -90,7 +95,7 @@ results <- readr::read_csv(RESULTS_PATH) %>%
 datatable(results, options = list(paging =TRUE, pageLength = 5))
 ```
 
-#### 2.3 Joining Predictions and Reference
+### Joining Predictions and Reference
 
 For each reference event, we now join all predictions of the respective field and year. This is performed separately for each group. We then calculate the temproal distance in days for each joined prediction and keep only the nearest prediction.
 
@@ -114,7 +119,7 @@ valid_cuts <- joined_cuts %>%
 datatable(valid_cuts, options = list(paging =TRUE, pageLength = 5))
 ```
 
-### 3. Accuracy Assessment
+## Accuracy Assessment
 
 We then count the number of:
 
@@ -191,11 +196,11 @@ acc_assess_metrics <- acc_assess_values_all %>%
 datatable(acc_assess_metrics, options = list(paging =TRUE, pageLength = 5)) %>% formatRound(columns = c("Recall", "Precision", "F1"), digits = 2)
 ```
 
-#### 3.1 Visualizing the Accuracy Assessment
+### Visualizing the Accuracy Assessment
 
 We can now visualize the accuracy assessment to highlight differences in the predictions of the different groups and between specific years and regions.
 
-##### Differences between the groups taking into account all regions and years.
+#### Differences between the groups taking into account all regions and years  {.unnumbered}
 
 ```{r, echo=FALSE, fig.align = 'center'}
 acc_assess_metrics %>%
@@ -213,7 +218,7 @@ acc_assess_metrics %>%
   theme(legend.title = element_blank())
 ```
 
-##### Differences between the groups separated by regions.
+#### Differences between the groups separated by regions  {.unnumbered}
 
 ```{r, echo=FALSE, fig.align = 'center'}
 acc_assess_metrics %>% 
@@ -233,7 +238,7 @@ acc_assess_metrics %>%
   theme(legend.title = element_blank())
 ```
 
-##### Differences between the groups separated by years.
+#### Differences between the groups separated by years {.unnumbered}
 
 ```{r, echo=FALSE, fig.align = 'center'}
 acc_assess_metrics %>%
@@ -252,7 +257,7 @@ acc_assess_metrics %>%
   theme(legend.title = element_blank())
 ```
 
-### 4. Regression Metrics
+## Regression Metrics
 
 In addition to the classical accuracy assessment, which evaluates the certainty of predictions in a binary manner, we compared the Day of Year (DOY) of the predicted and reference events. This comparison allows us to identify patterns in temporal deviations. To achieve this, we calculated the mean absolute error (MAE), bias, and correlation coefficient (r).
 
@@ -292,3 +297,98 @@ regression_metrics %>%
   )
 ```
 
+We can also visualize a scatterplot showing the overall distribution of predicted and reference events.
+
+```{r, echo=FALSE, fig.align = 'center'}
+
+# define limits for scatterplot
+dates.predicted.stat <-
+  joined_cuts %>%
+  mutate(compliant = ifelse(abs(difference) > TOLERANCE, F, T)) %>%
+  summarise(across(.cols = c(Date_pred, Date_ref), list(min = min, max = max)))
+
+
+# scatterplot
+joined_cuts %>%
+  group_by(MOD_ID, Group, Year) %>% 
+  arrange(Group, MOD_ID, Year, Date_pred) %>% 
+  mutate(cut=row_number()) %>% 
+  ggplot(mapping = aes(x = Date_ref, y = Date_pred)) +
+  geom_abline(mapping = aes(intercept = 12, slope = 1, linetype = "TOLERANCE")) +
+  geom_abline(mapping = aes(intercept = -12, slope = 1, linetype = "TOLERANCE")) +
+  scale_linetype_manual(name = element_blank(), values = c("dashed"), labels = c(paste0("TOLERANCE\n±", 12, " days"))) +
+  geom_abline(intercept = 0, slope = 1, size = .4, color = "black") +
+  geom_point(mapping = aes(shape = abs(Date_ref - Date_pred) <= 12,
+                           color = sapply(as.numeric(cut), scales::ordinal)),
+             size = 2.75,
+             alpha = .75) +
+  scale_shape_manual(name = "Prediction", values = c(4, 20), labels = c("False", "True")) +
+  labs(x = "Reference DOY", y = "Predicted DOY", 
+       color = "Cut") +
+  ggthemes::scale_color_few() +
+  ggthemes::theme_few() +
+  coord_equal(xlim = c(dates.predicted.stat %>% min(),
+                       dates.predicted.stat %>% max()),
+              ylim = c(dates.predicted.stat %>% min(),
+                       dates.predicted.stat %>% max())) +
+  facet_grid(Group~Year)
+```
+
+## Number of Mowing Events
+
+In our last validation step, we compared the predicted number of mowing events per field with the reference data.
+
+```{r}
+
+# Count number of cuts
+ref_count <- reference_data_cleaned %>% 
+  count(MOD_ID, Year, Region, name = "nmow_ref")
+
+pred_count <- results %>% 
+  count(MOD_ID, Year, Region, Group, Method, Data, name = "nmow_pred")
+
+
+nmows <- pred_count %>% 
+  split(.$Group) %>% 
+  # introduce implicit zero mowing predictions when no prediction provided
+  lapply(function(x) {
+    left_join(ref_count, x, by = c("MOD_ID", "Year", "Region")) %>% 
+      replace_na(list(Group = x$Group[1],
+                      Method = x$Method[1],
+                      Data = x$Data[1],
+                      nmow_pred = 0))
+  }) %>% 
+  bind_rows() %>% 
+  mutate(Year = as.character(Year)) %>% 
+  bind_rows(mutate(., Region = "All")) %>%  # merge all regions and set to all
+  bind_rows(mutate(., Year = "All")) %>% 
+  group_by(Year, Region, Group, Method, Data) %>% 
+  mutate(difference=nmow_pred-nmow_ref) %>% 
+  summarise(mae=mean(abs(difference)), 
+            relmae=mean(abs(difference))/mean(nmow_ref),
+            bias=mean(difference),
+            mse=mean(difference*difference),
+            rmse=sqrt(mean(difference*difference)),
+            relRmse=sqrt(mean(difference*difference))/mean(nmow_ref),
+            mape=mean(abs(difference/nmow_ref)))
+```
+
+This data can be used to visualize if certain algorithms tend to overestimate or underestimate the number of mowing events on a field within a year.
+
+```{r, echo=FALSE, fig.align = 'center'}
+nmows %>% 
+  filter(Region == "All") %>% 
+  ggplot(aes(y = Group)) +
+  geom_vline(xintercept = 0, alpha = .5) +
+  geom_errorbar(aes(xmin = bias - mae, xmax = bias + mae, linetype = "+/- MAE"), width = .2) +
+  geom_point(aes(x = bias, shape = "Bias"), size = 2.5) +
+  labs(x = "Difference Number of Cuts") +
+  theme_minimal() +
+  theme(axis.title.x = element_text(size = 16L),
+        axis.text.y = element_text(size = 16L),
+        axis.text.x = element_text(size = 16L),
+        legend.text = element_text(size = 14L),
+        legend.title = element_blank(), 
+        axis.title.y = element_blank()
+  )
+```
