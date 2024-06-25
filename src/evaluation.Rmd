@@ -390,5 +390,6 @@ nmows %>%
         legend.text = element_text(size = 14L),
         legend.title = element_blank(), 
         axis.title.y = element_blank()
-  )
+  ) +
+  facet_wrap(~Year)
 ```
