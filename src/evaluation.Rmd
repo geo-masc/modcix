@@ -331,7 +331,7 @@ joined_cuts %>%
                        dates.predicted.stat %>% max()),
               ylim = c(dates.predicted.stat %>% min(),
                        dates.predicted.stat %>% max())) +
-  facet_grid(Group~Year)
+  facet_grid(~Group)
 ```
 
 ## Number of Mowing Events
