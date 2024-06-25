@@ -43,7 +43,7 @@ RESULTS_PATH <- "../data/results_data_dummy.csv"  # Path to results data
 
 ### 2. Load and Prepare Data
 
-#### Reference Data
+#### 2.1 Reference Data
 We load the reference data check that all mowing events are within our defined valid mowing period between March 15 and October 27 (```VALID_MOWING_RANGE```). The dates of the reference mowing events are in the day of the year (DOY) format.
 
 ```{r load-reference-data}
@@ -74,7 +74,7 @@ reference_data_cleaned <- reference_data %>%
 ```{r, echo=FALSE}
 datatable(reference_data_cleaned, options = list(paging =TRUE, pageLength = 5))
 ```
-#### Results of the Groups
+#### 2.2 Results of the Groups
 
 We load the harmonized predictions and discard predictions outside the valid mowing period (```VALID_MOWING_RANGE```). Regions and year combinations that are not present in the reference data are also filtered out.
 
@@ -90,7 +90,7 @@ results <- readr::read_csv(RESULTS_PATH) %>%
 datatable(results, options = list(paging =TRUE, pageLength = 5))
 ```
 
-#### Joining Predictions and Reference
+#### 2.3 Joining Predictions and Reference
 
 For each reference event, we now join all predictions of the respective field and year. This is performed separately for each group. We then calculate the temproal distance in days for each joined prediction and keep only the nearest prediction.
 
@@ -191,7 +191,7 @@ acc_assess_metrics <- acc_assess_values_all %>%
 datatable(acc_assess_metrics, options = list(paging =TRUE, pageLength = 5)) %>% formatRound(columns = c("Recall", "Precision", "F1"), digits = 2)
 ```
 
-#### Visualizing the Accuracy Assessment
+#### 3.1 Visualizing the Accuracy Assessment
 
 We can now visualize the accuracy assessment to highlight differences in the predictions of the different groups and between specific years and regions.
 
@@ -251,3 +251,44 @@ acc_assess_metrics %>%
   labs(y = "Metric [-]") +
   theme(legend.title = element_blank())
 ```
+
+### 4. Regression Metrics
+
+In addition to the classical accuracy assessment, which evaluates the certainty of predictions in a binary manner, we compared the Day of Year (DOY) of the predicted and reference events. This comparison allows us to identify patterns in temporal deviations. To achieve this, we calculated the mean absolute error (MAE), bias, and correlation coefficient (r).
+
+We calculated these metrics only for correctly paired predicted and reference events. This approach is based on the assumption that predictions deviating by more than 12 days from a reference event are false positives, not linked to a true reference event. Including such deviations could obscure subtle patterns in true positive predictions. This procedure may be discussed.
+
+```{r}
+# caculate MAE only for true positives --> discuss if we want to filter or not
+regression_metrics <- valid_cuts %>% 
+  mutate(Year = as.character(Year)) %>% 
+  bind_rows(mutate(., Region = "All")) %>%  # merge all regions and set to all
+  bind_rows(mutate(., Year = "All")) %>%    # merge all years and set to all
+  group_by(Group, Region, Year, Method, Data) %>% 
+  mutate(difference = Date_pred - Date_ref) %>% 
+  summarise(mae=mean(abs(difference)),
+            bias=mean(difference),
+            r = cor(Date_pred, Date_ref))
+```
+
+We can then plot the results to see if an algorithm tends to predict mowing events rather early or late.
+
+```{r, echo=FALSE, fig.align = 'center'}
+regression_metrics %>% 
+  filter(Year == "All") %>%
+  filter(Region == "All") %>% 
+  ggplot(aes(y = Group)) +
+  geom_vline(xintercept = 0, alpha = .5) +
+  geom_errorbar(aes(xmin = bias - mae, xmax = bias + mae, linetype = "+/- MAE"), width = .2) +
+  geom_point(aes(x = bias, shape = "Bias"), size = 2.5) +
+  labs(x = "Difference from reference event [days]") +
+  theme_minimal() +
+  theme(axis.title.x = element_text(size = 16L),
+        axis.text.y = element_text(size = 16L),
+        axis.text.x = element_text(size = 16L),
+        legend.text = element_text(size = 14L),
+        legend.title = element_blank(), 
+        axis.title.y = element_blank()
+  )
+```
+
