@@ -1,12 +1,20 @@
 ---
-title: "MODCiX Accuracy Assessment"
-output: github_document
+title: "MODCiX - Mowing Detection Intercomparison Exercise"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+author:
+  - Marcel Schwieder^[marcel.schwieder@thuenen.de] & Felix Lobert^[felix.lobert@thuenen.de]
+  - Thünen Earth Observation
+date: "`r format(Sys.time(), '%B %d, %Y')`"
 knit: (function(inputFile, encoding) {
   rmarkdown::render(inputFile, encoding = encoding, output_dir = "../docs", output_file = file.path(dirname(inputFile), 'index.html')) })
 ---
 
 ```{r setup, include=FALSE} 
 knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+library(DT)
 ```
 
 ## Accuracy Assessment of Mowing Events
@@ -22,7 +30,6 @@ We start by loading the necessary libraries and defining constants.
 ```{r load-libraries}
 # Load necessary libraries
 library(tidyverse)
-library(lubridate)
 ```
 ```{r define-constants}
 # Define constants and paths
@@ -34,16 +41,18 @@ REFERENCE_DATA_PATH <- "../data/reference_data_dummy.csv"  # Path to reference d
 RESULTS_PATH <- "../data/results_data_dummy.csv"  # Path to results data
 ```
 
-### 2. Load and Prepare Reference Data
+### 2. Load and Prepare Data
 
+#### 2.1 Reference Data
 We load the reference data check that all mowing events are within our defined valid mowing period between March 15 and October 27 (```VALID_MOWING_RANGE```). The dates of the reference mowing events are in the day of the year (DOY) format.
 
 ```{r load-reference-data}
 # Load reference data and preprocess it
 reference_data <- read_csv(REFERENCE_DATA_PATH) %>%
   filter(Date_ref %in% VALID_MOWING_RANGE)
-
-head(reference_data)
+```
+```{r, echo=FALSE}
+datatable(reference_data, options = list(paging =TRUE, pageLength = 5))
 ```
 
 We then check the temporal distance of consecutive mowing events on the same field. Events that are closer to each other than our defined threshold ```EVENT_MIN_DIFFERENCE``` are discarded.
@@ -61,11 +70,11 @@ invalid_reference_dates <- diff_reference_dates %>%
 
 reference_data_cleaned <- reference_data %>%
   anti_join(invalid_reference_dates)
-
-head(reference_data_cleaned)
 ```
-
-## 4. Load and Prepare Results Data
+```{r, echo=FALSE}
+datatable(reference_data_cleaned, options = list(paging =TRUE, pageLength = 5))
+```
+#### 2.2 Results of the Groups
 
 We load the harmonized predictions and discard predictions outside the valid mowing period (```VALID_MOWING_RANGE```). Regions and year combinations that are not present in the reference data are also filtered out.
 
@@ -77,14 +86,15 @@ results <- readr::read_csv(RESULTS_PATH) %>%
   drop_na() %>%
   semi_join(reference_data_cleaned, by = c("Region", "Year"))
 ```
+```{r, echo=FALSE}
+datatable(results, options = list(paging =TRUE, pageLength = 5))
+```
 
-
-## 5. Joining Predictions and Reference Data
+#### 2.3 Joining Predictions and Reference
 
 For each reference event, we now join all predictions of the respective field and year. This is performed separately for each group. We then calculate the temproal distance in days for each joined prediction and keep only the nearest prediction.
 
 The valid cuts (true positives; TP) are then defined as the matches between reference events and predictions with less than ```TOLERANCE``` days absolute difference. All other events are counted as false positives (FP).
-
 
 ```{r}
 # Calculate absolute errors between reference and predicted dates
@@ -100,13 +110,15 @@ joined_cuts <- reference_data_cleaned %>%
 valid_cuts <- joined_cuts %>%
   filter(difference <= TOLERANCE)
 ```
+```{r, echo=FALSE}
+datatable(valid_cuts, options = list(paging =TRUE, pageLength = 5))
+```
 
-
-## 6. Accuracy Assessment
+### 3. Accuracy Assessment
 
 We then count the number of:
 
-* true reference (T)
+* true reference events (T)
   * all positive events in the reference data
 * true positives (TP)
   * correctly predicted events
@@ -135,6 +147,9 @@ acc_assess_values <- p %>%
   mutate(across(c("P", "T", "TP"), ~ replace_na(.x, 0))) %>%
   mutate(FP = P - TP)
 ```
+```{r, echo=FALSE}
+datatable(acc_assess_values, options = list(paging =TRUE, pageLength = 5))
+```
 
 We then also summarize the accuracy values per region to to be able to analyze differences.
 
@@ -150,6 +165,9 @@ acc_assess_values_all <- acc_assess_values %>%
   group_by(Group, Region, Year, Method, Data) %>%
   # summary only relevant for Region = All and Year = All
   summarise(across(P:FP, sum), .groups = "drop")
+```
+```{r, echo=FALSE}
+datatable(acc_assess_values_all, options = list(paging =TRUE, pageLength = 5))
 ```
 
 Finally, we can calculate the following metrics:
@@ -169,14 +187,17 @@ acc_assess_metrics <- acc_assess_values_all %>%
   mutate(F1 = (2 * Precision * Recall) / (Precision + Recall)) %>%
   mutate(F1 = replace_na(F1, 0))
 ```
+```{r, echo=FALSE}
+datatable(acc_assess_metrics, options = list(paging =TRUE, pageLength = 5)) %>% formatRound(columns = c("Recall", "Precision", "F1"), digits = 2)
+```
 
-## 7. Visualizing the results
+#### 3.1 Visualizing the Accuracy Assessment
 
 We can now visualize the accuracy assessment to highlight differences in the predictions of the different groups and between specific years and regions.
 
-###### 1. Differences between the groups taking into account all regions and years.
+##### Differences between the groups taking into account all regions and years.
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, fig.align = 'center'}
 acc_assess_metrics %>%
   filter(Year == "All") %>%
   filter(Region == "All") %>%
@@ -192,9 +213,9 @@ acc_assess_metrics %>%
   theme(legend.title = element_blank())
 ```
 
-###### 2. Differences between the groups separated by regions.
+##### Differences between the groups separated by regions.
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, fig.align = 'center'}
 acc_assess_metrics %>% 
   filter(Region != "All") %>% 
   filter(Year == "All") %>%
@@ -212,9 +233,9 @@ acc_assess_metrics %>%
   theme(legend.title = element_blank())
 ```
 
-###### 3. Differences between the groups separated by years.
+##### Differences between the groups separated by years.
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, fig.align = 'center'}
 acc_assess_metrics %>%
   filter(Region == "All") %>%
   mutate(Year_n = paste0(Year, " (n= ", T, ")")) %>%
@@ -230,3 +251,44 @@ acc_assess_metrics %>%
   labs(y = "Metric [-]") +
   theme(legend.title = element_blank())
 ```
+
+### 4. Regression Metrics
+
+In addition to the classical accuracy assessment, which evaluates the certainty of predictions in a binary manner, we compared the Day of Year (DOY) of the predicted and reference events. This comparison allows us to identify patterns in temporal deviations. To achieve this, we calculated the mean absolute error (MAE), bias, and correlation coefficient (r).
+
+We calculated these metrics only for correctly paired predicted and reference events. This approach is based on the assumption that predictions deviating by more than 12 days from a reference event are false positives, not linked to a true reference event. Including such deviations could obscure subtle patterns in true positive predictions. This procedure may be discussed.
+
+```{r}
+# caculate MAE only for true positives --> discuss if we want to filter or not
+regression_metrics <- valid_cuts %>% 
+  mutate(Year = as.character(Year)) %>% 
+  bind_rows(mutate(., Region = "All")) %>%  # merge all regions and set to all
+  bind_rows(mutate(., Year = "All")) %>%    # merge all years and set to all
+  group_by(Group, Region, Year, Method, Data) %>% 
+  mutate(difference = Date_pred - Date_ref) %>% 
+  summarise(mae=mean(abs(difference)),
+            bias=mean(difference),
+            r = cor(Date_pred, Date_ref))
+```
+
+We can then plot the results to see if an algorithm tends to predict mowing events rather early or late.
+
+```{r, echo=FALSE, fig.align = 'center'}
+regression_metrics %>% 
+  filter(Year == "All") %>%
+  filter(Region == "All") %>% 
+  ggplot(aes(y = Group)) +
+  geom_vline(xintercept = 0, alpha = .5) +
+  geom_errorbar(aes(xmin = bias - mae, xmax = bias + mae, linetype = "+/- MAE"), width = .2) +
+  geom_point(aes(x = bias, shape = "Bias"), size = 2.5) +
+  labs(x = "Difference from reference event [days]") +
+  theme_minimal() +
+  theme(axis.title.x = element_text(size = 16L),
+        axis.text.y = element_text(size = 16L),
+        axis.text.x = element_text(size = 16L),
+        legend.text = element_text(size = 14L),
+        legend.title = element_blank(), 
+        axis.title.y = element_blank()
+  )
+```
+
