@@ -1,10 +1,13 @@
 ---
-title: "MODCiX Accuracy Assessment"
+title: "MODCiX - Mowing Detection Intercomparison Exercise"
 output: 
   html_document:
     toc: true
     toc_float: true
-date: "`r format(Sys.time(), '%d %B %Y')`"
+author:
+  - Marcel Schwieder^[marcel.schwieder@thuenen.de] & Felix Lobert^[felix.lobert@thuenen.de]
+  - Thünen Earth Observation
+date: "`r format(Sys.time(), '%B %d, %Y')`"
 knit: (function(inputFile, encoding) {
   rmarkdown::render(inputFile, encoding = encoding, output_dir = "../docs", output_file = file.path(dirname(inputFile), 'index.html')) })
 ---
@@ -26,7 +29,6 @@ We start by loading the necessary libraries and defining constants.
 ```{r load-libraries}
 # Load necessary libraries
 library(tidyverse)
-library(lubridate)
 ```
 ```{r define-constants}
 # Define constants and paths
@@ -47,7 +49,7 @@ We load the reference data check that all mowing events are within our defined v
 reference_data <- read_csv(REFERENCE_DATA_PATH) %>%
   filter(Date_ref %in% VALID_MOWING_RANGE)
 
-head(reference_data)
+reference_data
 ```
 
 We then check the temporal distance of consecutive mowing events on the same field. Events that are closer to each other than our defined threshold ```EVENT_MIN_DIFFERENCE``` are discarded.
@@ -66,10 +68,10 @@ invalid_reference_dates <- diff_reference_dates %>%
 reference_data_cleaned <- reference_data %>%
   anti_join(invalid_reference_dates)
 
-head(reference_data_cleaned)
+reference_data_cleaned
 ```
 
-## 4. Load and Prepare Results Data
+### 3. Load and Prepare Results Data
 
 We load the harmonized predictions and discard predictions outside the valid mowing period (```VALID_MOWING_RANGE```). Regions and year combinations that are not present in the reference data are also filtered out.
 
@@ -80,10 +82,12 @@ results <- readr::read_csv(RESULTS_PATH) %>%
   filter(Date_pred %in% VALID_MOWING_RANGE) %>%
   drop_na() %>%
   semi_join(reference_data_cleaned, by = c("Region", "Year"))
+
+results
 ```
 
 
-## 5. Joining Predictions and Reference Data
+### 4. Joining Predictions and Reference Data
 
 For each reference event, we now join all predictions of the respective field and year. This is performed separately for each group. We then calculate the temproal distance in days for each joined prediction and keep only the nearest prediction.
 
@@ -103,10 +107,11 @@ joined_cuts <- reference_data_cleaned %>%
 # Filter valid predictions within tolerance
 valid_cuts <- joined_cuts %>%
   filter(difference <= TOLERANCE)
+
+valid_cuts
 ```
 
-
-## 6. Accuracy Assessment
+### 5. Accuracy Assessment
 
 We then count the number of:
 
@@ -138,6 +143,8 @@ acc_assess_values <- p %>%
   left_join(tp, by = c("Group", "Region", "Year", "Method", "Data")) %>%
   mutate(across(c("P", "T", "TP"), ~ replace_na(.x, 0))) %>%
   mutate(FP = P - TP)
+
+acc_assess_values
 ```
 
 We then also summarize the accuracy values per region to to be able to analyze differences.
@@ -154,6 +161,8 @@ acc_assess_values_all <- acc_assess_values %>%
   group_by(Group, Region, Year, Method, Data) %>%
   # summary only relevant for Region = All and Year = All
   summarise(across(P:FP, sum), .groups = "drop")
+
+acc_assess_values_all
 ```
 
 Finally, we can calculate the following metrics:
@@ -172,13 +181,15 @@ acc_assess_metrics <- acc_assess_values_all %>%
   mutate(Precision = replace_na(Precision, 0)) %>%
   mutate(F1 = (2 * Precision * Recall) / (Precision + Recall)) %>%
   mutate(F1 = replace_na(F1, 0))
+
+acc_assess_metrics
 ```
 
-## 7. Visualizing the results
+### 6. Visualizing the results
 
 We can now visualize the accuracy assessment to highlight differences in the predictions of the different groups and between specific years and regions.
 
-###### 1. Differences between the groups taking into account all regions and years.
+#### Differences between the groups taking into account all regions and years.
 
 ```{r, echo=FALSE}
 acc_assess_metrics %>%
@@ -196,7 +207,7 @@ acc_assess_metrics %>%
   theme(legend.title = element_blank())
 ```
 
-###### 2. Differences between the groups separated by regions.
+#### Differences between the groups separated by regions.
 
 ```{r, echo=FALSE}
 acc_assess_metrics %>% 
@@ -216,7 +227,7 @@ acc_assess_metrics %>%
   theme(legend.title = element_blank())
 ```
 
-###### 3. Differences between the groups separated by years.
+#### Differences between the groups separated by years.
 
 ```{r, echo=FALSE}
 acc_assess_metrics %>%
