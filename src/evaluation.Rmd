@@ -214,6 +214,9 @@ acc_assess_metrics <- acc_assess_values_all %>%
   mutate(F1 = (2 * Precision * Recall) / (Precision + Recall)) %>%
   mutate(F1 = replace_na(F1, 0))
 ```
+
+Different combinations of regions, years, quality labels and grassland use intensity classes (1 : 1-2 events; 2 : 2-3 events; 3: 4+ events) can be explored in the shiny app: [MODCiX evaluation results](https://geo-masc.shinyapps.io/modcix_evaluation/)
+
 ```{r, echo = FALSE}
 aa_metrics_all_clean <- read_csv(ACC_ASSESS_METRICS_PATH) %>%
     select(-c(T, P, TP, FP)) %>%
@@ -222,6 +225,7 @@ aa_metrics_all_clean <- read_csv(ACC_ASSESS_METRICS_PATH) %>%
 
 datatable(aa_metrics_all_clean, filter = 'top', options = list(paging = TRUE, pageLength = 5))
 ```
+
 
 ### Visualizing the Accuracy Assessment
 
@@ -268,8 +272,6 @@ acc_assess_metrics %>%
   ylim(0,1) +
   theme(legend.title = element_blank())
 ```
-
-Different combinations of regions, years, quality labels and grassland use intensity classes (1 : 1-2 events; 2 : 2-3 events; 3: 4+ events) can be explored in the shiny app: [MODCiX evaluation results](https://geo-masc.shinyapps.io/modcix_evaluation/)
 
 #### Differences between the groups separated by regions
 
