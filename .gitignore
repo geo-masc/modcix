@@ -1,1 +1,6 @@
 docs/index_files/*
+data/accuracy_metrics.csv
+data/MOD_results_20240702.csv
+data/MODCiX_valid_70_perc_all_regions_2017-21.gpkg
+data/MODCiX_aa_metrics_shiny_20240710_wo_ARPA_CAU_label_1_2_3_GLUI.csv
+data/problematic_parcels.csv
