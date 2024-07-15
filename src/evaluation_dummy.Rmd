@@ -137,7 +137,7 @@ When joining the counts (TP, FP, etc.), it is important to introduce explicit ze
 
 ```{r}
 # Calculate the number of reference cuts per region and year
-t <- reference_data %>%
+t <- reference_data_cleaned %>%
   count(Region, Year, name = "T")
 
 # Calculate the number of true positives per region and group
