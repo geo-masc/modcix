@@ -1,0 +1,439 @@
+---
+title: "MODCiX - Mowing Detection Intercomparison Exercise"
+output: 
+  html_document:
+    theme: flatly
+    toc: yes
+    toc_float:
+      collapsed: true
+    toc_depth: 3
+    number_sections: true
+code_download: true
+author:
+  - Marcel Schwieder^[marcel.schwieder@thuenen.de] & Felix Lobert^[felix.lobert@thuenen.de]
+  - Thünen Earth Observation
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+fontsize: 16pt
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "../docs", output_file = file.path(dirname(inputFile), 'index.html')) })
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, tidy = "styler")
+```
+
+# Accuracy Assessment of Mowing Events
+
+This notebook evaluates the accuracy of predicted mowing events against reference data. The steps include data loading, preprocessing, filtering, and computing accuracy metrics.
+
+## Load Libraries and Define Constants
+
+We start by loading the necessary libraries and defining constants.
+
+```{r load-libraries}
+# Load necessary libraries
+library(tidyverse)
+library(DT)
+library(sf)
+```
+
+```{r define-constants}
+# Define constants and paths
+TOLERANCE <- 12 # Temporal distance between reference and prediction to be considered correct
+VALID_MOWING_RANGE <- 75:300 # Valid range for mowing dates (15th March to 27th October)
+EVENT_MIN_DIFFERENCE <- 15 # Minimum difference in days between consecutive mowing events
+```
+```{r define-constants-2, echo = FALSE}
+REFERENCE_DATA_PATH = "../data/MODCiX_valid_70_perc_all_regions_2017-21.gpkg"
+RESULTS_PATH = "../data/MOD_results_20240702.csv"
+PROBLEMATIC_PARCELS_PATH <- "../data/problematic_parcels.csv"
+ACC_ASSESS_METRICS_PATH <- "../data/MODCiX_aa_metrics_shiny_20240710_wo_ARPA_CAU_label_1_2_3_GLUI.csv"
+```
+
+## Load and Prepare Data
+
+### Reference Data
+
+We load the reference data and check that all mowing events are within our defined valid mowing period between March 15 and October 27 (`VALID_MOWING_RANGE`). The dates of the reference mowing events are in the day of the year (DOY) format.
+
+```{r load-reference-data}
+# Load reference data and preprocess it
+reference_data <- sf::st_read(REFERENCE_DATA_PATH) %>% 
+  st_drop_geometry() %>% 
+  mutate(across(contains("Mow_"),lubridate::yday)) %>% 
+  select(-"NMow") %>% 
+  pivot_longer(contains("Mow_"), values_to = "Date") %>% 
+  select("MOD_ID","Date_ref" = "Date", "Year", "Region", "Label") %>%
+  filter(Date_ref %in% VALID_MOWING_RANGE) %>%
+  drop_na()
+
+```
+
+We then check the temporal distance of consecutive mowing events on the same field. Events that are closer to each other than our defined threshold `EVENT_MIN_DIFFERENCE` are discarded.
+
+```{r}
+# check temporal distance between reference events and remove if < threshold
+diff_reference_dates <- reference_data %>%
+  group_by(MOD_ID, Year) %>%
+  arrange(MOD_ID, Year, Date_ref) %>%
+  mutate(difference = c(NA, diff(Date_ref)))
+
+invalid_reference_dates <- diff_reference_dates %>%
+  filter(difference < EVENT_MIN_DIFFERENCE) %>%
+  distinct(MOD_ID, Year)
+
+# read file with "problematic" parcels due to missing data
+prob_parcels <- read_csv(PROBLEMATIC_PARCELS_PATH)
+
+reference_data_cleaned <- reference_data %>%
+  anti_join(invalid_reference_dates) %>% 
+  anti_join(prob_parcels, by="MOD_ID")
+```
+
+### Results of the Groups
+
+We load the harmonized predictions and discard predictions outside the valid mowing period (`VALID_MOWING_RANGE`). Regions and year combinations that are not present in the reference data are also filtered out.
+
+```{r}
+# Load and preprocess results data
+results <- readr::read_csv(RESULTS_PATH) %>%
+  filter(Date %in% VALID_MOWING_RANGE) %>%
+  drop_na() %>%
+  left_join(reference_data_cleaned %>% distinct(MOD_ID, Region), by="MOD_ID") %>% 
+  semi_join(reference_data_cleaned, by = c("MOD_ID")) %>% 
+  distinct()
+```
+
+### Joining Predictions and Reference
+
+For each reference event, we now join all predictions of the respective field and year. This is performed separately for each group. We then calculate the temproal distance in days for each joined prediction and keep only the nearest prediction.
+
+The valid cuts (true positives; TP) are then defined as the matches between reference events and predictions with less than `TOLERANCE` days absolute difference. All other events are counted as false positives (FP).
+
+```{r}
+# Calculate absolute errors between reference and predicted dates
+joined_cuts <- reference_data_cleaned %>%
+  left_join(results, by = c("MOD_ID", "Year", "Region")) %>%
+  mutate(difference = abs(Date_ref - Date)) %>%
+  group_by(MOD_ID, Year, Date_ref, Group) %>%
+  filter(difference == min(difference)) %>%
+  slice(1) %>%
+  ungroup()
+
+# Filter valid predictions within tolerance
+valid_cuts <- joined_cuts %>%
+  filter(difference <= TOLERANCE)
+```
+
+## Accuracy Assessment
+
+We then count the number of:
+
+-   true reference events (T)
+
+    -   all positive events in the reference data
+
+-   true positives (TP)
+
+    -   correctly predicted events
+
+-   total positives (P)
+
+    -   all predicted events wether correct or not
+
+-   and false positives (FP)
+
+    -   incorrect predictions
+
+When joining the counts (TP, FP, etc.), it is important to introduce explicit zeros, if, e.g., a group did not predict any mowing for a region or year. To make this sure, we split the positive prediction `p` by group and perform a `full_join` with all true events `t` afterwards.
+
+```{r}
+# Calculate the number of reference cuts per region and year
+t <- reference_data_cleaned %>%
+  count(Region, Year, name = "T")
+
+# Calculate the number of true positives per region and group
+tp <- valid_cuts %>%
+  count(Group, Region, Year, Method, Data, name = "TP")
+
+# Calculate the number of positives per region and group
+p <- results %>%
+  count(Group, Region, Year, Method, Data, name = "P")
+
+# Combine counts of positive predictions and true events
+acc_assess_values <- p %>%
+  group_split(Group) %>%
+  lapply(function(x) {
+    left_join(t, x, by = c("Region", "Year")) %>%
+      mutate(
+        Group = Group[1],
+        Method = Method[1],
+        Data = Data[1]
+      )
+  }) %>%
+  bind_rows() %>%
+  left_join(tp) %>%
+  mutate(
+    P = replace_na(P, 0),
+    TP = replace_na(TP, 0)
+  ) %>%
+  mutate(FP = P - TP) %>% 
+  relocate(c("T", "P", "TP", "FP"), .after = everything())
+```
+
+We then also summarize the accuracy values per region to to be able to analyze differences.
+
+```{r}
+# Summarize accuracy values across all regions and years
+
+acc_assess_values_all <- acc_assess_values %>%
+  mutate(Year = as.character(Year)) %>%
+  # merge all regions and set to all
+  bind_rows(mutate(., Region = "All")) %>%
+  # merge all years and set to all
+  bind_rows(mutate(., Year = "All")) %>%
+  group_by(Group, Region, Year, Method, Data) %>%
+  # summary only relevant for Region = All and Year = All
+  summarise(across(c("T", "P", "TP", "FP"), sum), .groups = "drop")
+```
+
+Finally, we can calculate the following metrics:
+
+-   Precision: the ratio of correctly predicted positive observations to the total predicted positives.
+
+-   Recall: the ratio of correctly predicted positive observations to all observations in the actual class.
+
+-   F1 Score: the harmonic mean of Precision and Recall. Therefore, this score takes both false positives and false negatives into account.
+
+```{r}
+# calculate accuracy metrics
+acc_assess_metrics <- acc_assess_values_all %>%
+  mutate(Recall = TP / T) %>%
+  mutate(Precision = TP / P) %>%
+  mutate(Precision = replace_na(Precision, 0)) %>%
+  mutate(F1 = (2 * Precision * Recall) / (Precision + Recall)) %>%
+  mutate(F1 = replace_na(F1, 0))
+```
+```{r, echo = FALSE}
+aa_metrics_all_clean <- read_csv(ACC_ASSESS_METRICS_PATH) %>%
+    select(-c(T, P, TP, FP)) %>%
+    mutate(across(c("Precision", "Recall", "F1"), round, 2)) %>%
+    mutate(across(-c("Precision", "Recall", "F1"), as.factor))
+
+datatable(aa_metrics_all_clean, filter = 'top', options = list(paging = TRUE, pageLength = 5))
+```
+
+### Visualizing the Accuracy Assessment
+
+We can now visualize the accuracy assessment to highlight differences in the predictions of the different groups and between specific years and regions.
+
+#### Differences between the groups taking into account all regions and years {.unnumbered}
+
+```{r, echo=FALSE, fig.align = 'center'}
+acc_assess_metrics %>%
+  filter(Year == "All") %>%
+  filter(Region == "All") %>%
+  ggplot(aes(x = factor(Group))) +
+  geom_segment(aes(y = Recall, yend = Precision, xend = factor(Group))) +
+  geom_point(aes(y = Recall, color = "Recall", shape = "Recall"), size = 2.5) +
+  geom_point(aes(y = Precision, color = "Precision", shape = "Precision"), size = 2.5) +
+  geom_point(aes(y = F1, color = "F1-Score", shape = "F1-Score"), size = 2.5) +
+  #Adding colored rectangles based on 'Method'
+  geom_rect(aes(xmin = as.numeric(factor(Group)) - 0.4, xmax = as.numeric(factor(Group)) + 0.4,ymin = 0, ymax = 1,fill = Method), inherit.aes = FALSE,alpha = 0.2) +
+  scale_color_manual(name = "Metric", breaks = c("F1-Score", "Precision", "Recall"), values = ggthemes::colorblind_pal()(3)[1:3]) +
+  scale_shape_manual(name = "Metric", breaks = c("F1-Score", "Precision", "Recall"), values = c(15, 16, 16)) +
+  theme_minimal() +
+  labs(y = "Metric", x = "Group") +
+  ylim(0,1) +
+  theme(legend.title = element_blank())
+```
+
+```{r, echo=FALSE, fig.align = 'center'}
+# Sample plot with colored background based on 'Method'
+acc_assess_metrics %>%
+  filter(Year == "All") %>%
+  filter(Region == "All") %>%
+  ggplot(aes(x = factor(Group))) +
+  geom_segment(aes(y = Recall, yend = Precision, xend = factor(Group))) +
+  geom_point(aes(y = Recall, color = "Recall", shape = "Recall"), size = 2.5) +
+  geom_point(aes(y = Precision, color = "Precision", shape = "Precision"), size = 2.5) +
+  geom_point(aes(y = F1, color = "F1-Score", shape = "F1-Score"), size = 2.5) +
+  # Adding colored rectangles based on 'Method'
+  geom_rect(aes(xmin = as.numeric(factor(Group)) - 0.4, xmax = as.numeric(factor(Group)) + 0.4,ymin = 0, ymax = 1,fill = Data), inherit.aes = FALSE,alpha = 0.2) +
+  scale_color_manual(name = "Metric", breaks = c("F1-Score", "Precision", "Recall"), values = ggthemes::colorblind_pal()(3)[1:3]) +
+  scale_shape_manual(name = "Metric", breaks = c("F1-Score", "Precision", "Recall"), values = c(15, 16, 16)) +
+  #scale_fill_manual(values = c("red", "blue"), name = "Method") +
+  theme_minimal() +
+  labs(y = "Metric", x = "Group") +
+  ylim(0,1) +
+  theme(legend.title = element_blank())
+```
+
+Different combinations of regions, years, quality labels and grassland use intensity classes (1 : 1-2 events; 2 : 2-3 events; 3: 4+ events) can be explored in the shiny app: [MODCiX evaluation results](https://geo-masc.shinyapps.io/modcix_evaluation/)
+
+#### Differences between the groups separated by regions
+
+```{r, echo=FALSE, fig.align = 'center'}
+acc_assess_metrics %>%
+  filter(Region != "All") %>%
+  filter(Year == "All") %>%
+  mutate(Region_n = paste0(Region, " (n= ", T, ")")) %>%
+  ggplot(aes(x = Group)) +
+  geom_segment(aes(y = Recall, yend = Precision, xend = Group)) +
+  geom_point(aes(y = Recall, color = "Recall", shape = "Recall")) +
+  geom_point(aes(y = Precision, color = "Precision", shape = "Precision")) +
+  geom_point(aes(y = F1, color = "F1-Score", shape = "F1-Score")) +
+    # Adding colored rectangles based on 'Method'
+  geom_rect(aes(xmin = as.numeric(factor(Group)) - 0.4, xmax = as.numeric(factor(Group)) + 0.4,ymin = 0, ymax = 1,fill = Method), inherit.aes = FALSE,alpha = 0.2) +
+  scale_color_manual(name = "Metric", breaks = c("F1-Score", "Precision", "Recall"), values = ggthemes::colorblind_pal()(3)[1:3]) +
+  scale_shape_manual(name = "Metric", breaks = c("F1-Score", "Precision", "Recall"), values = c(15, 16, 16)) +
+  facet_wrap(~Region_n) +
+  theme_minimal() +
+  labs(y = "Metric [-]") +
+  theme(legend.title = element_blank(),
+        axis.text.x = element_text(angle = 45),
+        text = element_text(size = 12))
+```
+
+#### Differences between the groups separated by years {.unnumbered}
+
+```{r, echo=FALSE, fig.align = 'center'}
+acc_assess_metrics %>%
+  filter(Region == "All") %>%
+  mutate(Year_n = paste0(Year, " (n= ", T, ")")) %>%
+  ggplot(aes(x = Group)) +
+  geom_segment(aes(y = Recall, yend = Precision, xend = Group)) +
+  geom_point(aes(y = Recall, color = "Recall", shape = "Recall")) +
+  geom_point(aes(y = Precision, color = "Precision", shape = "Precision")) +
+  geom_point(aes(y = F1, color = "F1-Score", shape = "F1-Score")) +
+  facet_wrap(~Year_n) +
+  geom_rect(aes(xmin = as.numeric(factor(Group)) - 0.4, xmax = as.numeric(factor(Group)) + 0.4,ymin = 0, ymax = 1,fill = Method), inherit.aes = FALSE,alpha = 0.2) +
+  scale_color_manual(name = "Metric", breaks = c("F1-Score", "Precision", "Recall"), values = ggthemes::colorblind_pal()(3)[1:3]) +
+  scale_shape_manual(name = "Metric", breaks = c("F1-Score", "Precision", "Recall"), values = c(15, 16, 16)) +
+  theme_minimal() +
+  labs(y = "Metric [-]") +
+  theme(legend.title = element_blank(),
+        axis.text.x = element_text(angle = 45))
+```
+
+#### Mowing date distributions (prediction vs reference); quality labels 1-3
+
+```{r, echo=FALSE, fig.align = 'center'}
+results %>%  
+  ggplot(aes(x = Date)) +
+  geom_density(aes(y=..count.., color="Prediction"))+
+  geom_density(data = reference_data_cleaned, aes(x = Date_ref, y=..count.., color="Reference")) +
+  labs(color="Mowing dates", x = "Day of Year", y = "Count")+
+  facet_grid(Year~Group, scales = "free_y")+
+  scale_x_continuous(seq(100,300,20)) +
+  theme(legend.title = element_blank(),
+      axis.text.x = element_text(angle = 45),
+      text = element_text(size = 12))
+```
+
+## Regression Metrics
+
+In addition to the classical accuracy assessment, which evaluates the certainty of predictions in a binary manner, we compared the Day of Year (DOY) of the predicted and reference events. This comparison allows us to identify patterns in temporal deviations. To achieve this, we calculated the mean absolute error (MAE), bias, and correlation coefficient (r).
+
+We calculated these metrics only for correctly paired predicted and reference events. This approach is based on the assumption that predictions deviating by more than 12 days from a reference event are false positives, not linked to a true reference event. Including such deviations could obscure subtle patterns in true positive predictions. This procedure may be discussed.
+
+```{r}
+# caculate MAE only for true positives --> discuss if we want to filter or not
+regression_metrics <- valid_cuts %>%
+  mutate(Year = as.character(Year)) %>%
+  bind_rows(mutate(., Region = "All")) %>% # merge all regions and set to all
+  bind_rows(mutate(., Year = "All")) %>% # merge all years and set to all
+  group_by(Group, Region, Year, Method, Data) %>%
+  mutate(difference = Date - Date_ref) %>%
+  summarise(
+    mae = mean(abs(difference)),
+    bias = mean(difference),
+    r = cor(Date, Date_ref)
+  )
+```
+
+We can then plot the results to see if an algorithm tends to predict mowing events rather early or late.
+
+```{r, echo=FALSE, fig.align = 'center'}
+regression_metrics %>%
+  filter(Year == "All") %>%
+  filter(Region == "All") %>%
+  ggplot(aes(y = Group)) +
+  geom_vline(xintercept = 0, alpha = .5) +
+  geom_errorbar(aes(xmin = 0 - mae, xmax = 0 + mae, linetype = "+/- MAE"), width = .2) +
+  geom_point(aes(x = bias, shape = "Bias"), size = 2.5) +
+  labs(x = "Difference from reference event [days]") +
+  theme_minimal() +
+  theme(
+    axis.title.x = element_text(size = 16L),
+    axis.text.y = element_text(size = 16L),
+    axis.text.x = element_text(size = 16L),
+    legend.text = element_text(size = 14L),
+    legend.title = element_blank(),
+    axis.title.y = element_blank()
+  )
+```
+
+## Number of Mowing Events
+
+In our last validation step, we compared the predicted number of mowing events per field with the reference data.
+
+```{r}
+# Count number of cuts
+ref_count <- reference_data_cleaned %>%
+  count(MOD_ID, Year, Region, name = "nmow_ref")
+
+pred_count <- results %>%
+  count(MOD_ID, Year, Region, Group, Method, Data, name = "nmow_pred")
+
+
+nmows <- pred_count %>%
+  split(.$Group) %>%
+  # introduce implicit zero mowing predictions when no prediction provided
+  lapply(function(x) {
+    left_join(ref_count, x, by = c("MOD_ID", "Year", "Region")) %>%
+      replace_na(list(
+        Group = x$Group[1],
+        Method = x$Method[1],
+        Data = x$Data[1],
+        nmow_pred = 0
+      ))
+  }) %>%
+  bind_rows() %>%
+  mutate(Year = as.character(Year)) %>%
+  bind_rows(mutate(., Region = "All")) %>% # merge all regions and set to all
+  bind_rows(mutate(., Year = "All")) %>%
+  group_by(Year, Region, Group, Method, Data) %>%
+  mutate(difference = nmow_pred - nmow_ref) %>%
+  summarise(
+    mae = mean(abs(difference)),
+    relmae = mean(abs(difference)) / mean(nmow_ref),
+    bias = mean(difference),
+    mse = mean(difference * difference),
+    rmse = sqrt(mean(difference * difference)),
+    relRmse = sqrt(mean(difference * difference)) / mean(nmow_ref),
+    mape = mean(abs(difference / nmow_ref))
+  )
+```
+
+This data can be used to visualize if certain algorithms tend to overestimate or underestimate the number of mowing events on a field within a year.
+
+```{r, echo=FALSE, fig.align = 'center'}
+nmows %>%
+  filter(Region == "All") %>%
+  ggplot(aes(y = Group)) +
+  geom_vline(xintercept = 0, alpha = .5) +
+  geom_errorbar(aes(xmin = 0 - mae, xmax = 0 + mae, linetype = "+/- MAE"), width = .2) +
+  geom_point(aes(x = bias, shape = "Bias"), size = 2.5) +
+  labs(x = "Difference Number of Cuts") +
+  theme_minimal() +
+  theme(
+    axis.title.x = element_text(size = 16L),
+    axis.text.y = element_text(size = 16L),
+    axis.text.x = element_text(size = 16L),
+    legend.text = element_text(size = 14L),
+    legend.title = element_blank(),
+    axis.title.y = element_blank()
+  ) +
+  facet_wrap(~Year)
+```
