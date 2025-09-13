@@ -31,4 +31,7 @@ Schwieder, Marcel; Lobert, Felix; Muhuri, Arnab; Oppelt, Natascha; Asam, Sarah; 
 Ann-Kathrin; Mallet, Clement; De Vroey, Mathilde; Schaumberger, Andreas; Tsardanidis, Iason; Sonnenschein, Ruth; Vuolo, Francesco; Dujakovic, Aleksander; Filippa, Gianluca; Erasmi, Stefan(2023) Mowing detection intercomparison exercise - MODCiX. 
 EARSeL Symposium, 2023-07-03 - 2023-07-06, Bucharest, Rumania.
 
-The manuscript **Mowing Detection Intercomparison Exercise (MODCiX) – A Cross-European Evaluation of Grassland Mowing Detection Algorithms**, is submitted to Remote Sensing of Environment
+The manuscript _Mowing Detection Intercomparison Exercise (MODCiX) – A Cross-European Evaluation of Grassland Mowing Detection Algorithms_, was submitted to Remote Sensing of Environment in 09/2025.
+
+MODCiX results can be explored [here](https://geo-masc.shinyapps.io/modcix_evaluation/).
+
